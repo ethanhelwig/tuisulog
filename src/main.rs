@@ -21,6 +21,7 @@ use tui::{
 struct App {
     logs: Vec<Vec<String>>,
     num_logs: usize,
+    sudo_logs: Vec<Vec<String>>,
     titles: Vec<String>,
     tab_index: usize,
     page_index: usize,
@@ -33,7 +34,8 @@ impl App {
         App {
             logs: get_logs().unwrap(),
             num_logs: 0,
-            titles: vec!["ALL".to_string(), "SUDO".to_string(), "SU".to_string(), "CRON".to_string(), "MISC".to_string()],
+            sudo_logs: Vec::new(),
+            titles: vec!["ALL".to_string(), "SUDO".to_string()],
             tab_index: 0,
             page_index: 0,
             num_pages: 0,
@@ -64,6 +66,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // create app and run it
     let mut app = App::new();
+    load_sudo_logs(&mut app);
     let res = run_app(&mut terminal, &mut app);
 
     // restore terminal
@@ -95,7 +98,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                 set_start_page = false;
             }
 
-            draw_ui(f, &size, app);
+            draw_ui(f, app, &size);
         })?;
 
         if let Event::Key(key) = event::read()? {
@@ -111,8 +114,14 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
                         app.page_index += 1;
                     }
                 }
-                KeyCode::Right => app.next(),
-                KeyCode::Left => app.prev(),
+                KeyCode::Right => {
+                    app.next();
+                    set_start_page = true;
+                },
+                KeyCode::Left => {
+                    app.prev();
+                    set_start_page = true;
+                },
                 _ => {}
             }
         }
@@ -121,7 +130,13 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut App) -> io::Result<
 
 fn update_logs(app: &mut App, size: &Rect) {
     app.logs_per_page = size.height.into();
-    app.num_logs = app.logs.len();
+
+    app.num_logs = match app.tab_index {
+        0 => app.logs.len(),
+        1 => app.sudo_logs.len(),
+        _ => todo!()
+    };
+
     if app.num_logs % app.logs_per_page == 0 {
         app.num_pages = app.num_logs / app.logs_per_page;
     } else {
@@ -129,7 +144,7 @@ fn update_logs(app: &mut App, size: &Rect) {
     }
 }
 
-fn draw_ui<B: Backend>(f: &mut Frame<B>, size: &Rect, app: &App) {
+fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &App, size: &Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
@@ -165,36 +180,27 @@ fn draw_ui<B: Backend>(f: &mut Frame<B>, size: &Rect, app: &App) {
     f.render_widget(tabs, chunks[0]);
 
     // draw logs
-    let text = calculate_subset(app);
+    let text = get_page(app);
 
-    let mut text_spanss: Vec<Spans> = Vec::new();
+    let mut text_spans: Vec<Spans> = Vec::new();
     for log in text {
         let line = log.join(" ");
         if line.contains("sudo") {
             let sudo_index = line.find("sudo").unwrap();
             let (first, rest) = line.split_at(sudo_index);
             let (sudo, rest) = rest.split_at(4);
-            text_spanss.push(Spans::from(vec![
+            text_spans.push(Spans::from(vec![
                 Span::styled(first.to_string(), Style::default().fg(Color::Rgb(200,200,200))),
                 Span::styled(sudo.to_string(), Style::default().fg(Color::Red)),
                 Span::styled(rest.to_string(), Style::default().fg(Color::Rgb(200,200,200))),
             ]));
         }
         else {
-            text_spanss.push(Spans::from(vec![
+            text_spans.push(Spans::from(vec![
                 Span::styled(line, Style::default().fg(Color::Rgb(200,200,200)))
             ]))
         }
     }
-    /*
-    let text_spans: Vec<Spans> = text.iter().map(|log| {
-        let text = log.join(" ");
-        let span = Span::from(Span::styled(
-            text,
-            Style::default().fg(Color::Rgb(200,200,200))
-        ));
-        Spans::from(span)
-    }).collect();*/
 
     let log_block = Block::default()
         .borders(Borders::ALL)
@@ -204,119 +210,33 @@ fn draw_ui<B: Backend>(f: &mut Frame<B>, size: &Rect, app: &App) {
         ))
         .style(Style::default().fg(Color::Rgb(120,120,120)));
     
-    let paragraph = Paragraph::new(text_spanss)
+    let paragraph = Paragraph::new(text_spans)
         .block(log_block)
         .wrap(Wrap{trim: true})
         .alignment(Alignment::Left);
     f.render_widget(paragraph, chunks[1]);
 }
 
-fn calculate_subset(app: &App) -> &[Vec<String>] {
+fn get_page(app: &App) -> &[Vec<String>] {
     let first_log = app.page_index * app.logs_per_page;
-    let last_log;
+    let last_log: usize;
     if app.page_index == app.num_pages - 1 {
         last_log = app.num_logs - 1;
     } else {
         last_log = first_log + app.logs_per_page - 1;
     }
-    let slice = &app.logs[first_log..last_log];
-    slice
-}
 
-/*fn ui<B: Backend>(f: &mut Frame<B>) {
-    let size = f.size();
-
-    // Surrounding block
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("tuisulog")
-        .title_alignment(Alignment::Center)
-        .border_style(Style::default().fg(Color::Gray))
-        .border_type(BorderType::Rounded);
-    f.render_widget(block, size);
-
-    // Layout
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(2)
-        .constraints([Constraint::Percentage(100)].as_ref())
-        .split(f.size());
-
-    let first_log = current_page * visible_lines;
-    let last_log;
-    if *current_page == num_pages - 1 {
-        last_log = num_logs - 1;
-    } else {
-        last_log = first_log + visible_lines - 1;
+    match app.tab_index {
+        0 => &app.logs[first_log..last_log],
+        1 => &app.sudo_logs[first_log..last_log],
+        _ => unreachable!()
     }
-    let logs_on_page = &logs[first_log..last_log];
-
-    let text_spans: Vec<Spans> = logs_on_page.iter().map(|log| {
-        let text = log.join(" ");
-        let span = Span::raw(text);
-        Spans::from(span)
-    }).collect();
-
-    f.render_widget(Paragraph::new(text_spans), chunks[0]);
-
-    /*
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(4)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(f.size());
-
-    // Top two inner blocks
-    let top_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(chunks[0]);
-
-    // Top left inner block with green background
-    let block = Block::default()
-        .title(vec![
-            Span::styled("With", Style::default().fg(Color::Yellow)),
-            Span::from(" background"),
-        ])
-        .style(Style::default().bg(Color::Green));
-    f.render_widget(block, top_chunks[0]);
-
-    // Top right inner block with styled title aligned to the right
-    let block = Block::default()
-        .title(Span::styled(
-            "Styled title",
-            Style::default()
-                .fg(Color::White)
-                .bg(Color::Red)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .title_alignment(Alignment::Right);
-    f.render_widget(block, top_chunks[1]);
-
-    // Bottom two inner blocks
-    let bottom_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-        .split(chunks[1]);
-
-    // Bottom left block with all default borders
-    let block = Block::default().title("With borders").borders(Borders::ALL);
-    f.render_widget(block, bottom_chunks[0]);
-
-    // Bottom right block with styled left and right border
-    let block = Block::default()
-        .title("With styled borders and doubled borders")
-        .border_style(Style::default().fg(Color::Cyan))
-        .borders(Borders::LEFT | Borders::RIGHT)
-        .border_type(BorderType::Double);
-    f.render_widget(block, bottom_chunks[1]);
-    */
-}*/
+}
 
 fn get_logs() -> Result<Vec<Vec<String>>, Box<dyn Error>> {
     // Open the auth.log file
     //let file = File::open("/var/log/auth.log")?;
-    let file = File::open("/home/ehelwig/tuisulog/text.log")?;
+    let file = File::open("/home/ehelwig/text.log")?;
     let reader = BufReader::new(file);
 
     // Vector to store the log entries
@@ -335,4 +255,12 @@ fn get_logs() -> Result<Vec<Vec<String>>, Box<dyn Error>> {
     }
 
     Ok(logs)
+}
+
+fn load_sudo_logs(app: &mut App) {
+    for log in &app.logs {
+        if log.iter().any(|str| str.contains("sudo")) {
+            app.sudo_logs.push(log.clone());
+        }
+    }
 }
