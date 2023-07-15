@@ -148,7 +148,7 @@ fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &App, size: &Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
+        .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(1)].as_ref())
         .split(*size);
 
     let block = Block::default()
@@ -215,6 +215,16 @@ fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &App, size: &Rect) {
         .wrap(Wrap{trim: true})
         .alignment(Alignment::Left);
     f.render_widget(paragraph, chunks[1]);
+
+    let info_block = Block::default();
+    let info: String = String::from(format!("\"/var/log/auth.log\" page: {}/{} logs: {}  (use arrow keys to navigate, press q to exit) ", app.page_index + 1, app.num_pages, app.num_logs));
+    let text_spans = Spans::from(
+        Span::styled(info, Style::default().bg(Color::Rgb(200,200,200)).fg(Color::Black))
+    );
+    let paragraph = Paragraph::new(text_spans)
+        .block(info_block)
+        .alignment(Alignment::Left);
+    f.render_widget(paragraph, chunks[2]);
 }
 
 fn get_page(app: &App) -> &[Vec<String>] {
