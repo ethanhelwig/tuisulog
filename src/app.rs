@@ -1,0 +1,130 @@
+use crossterm::event::{self, Event, KeyCode};
+use std::{
+    io::{self, BufRead, BufReader},
+    fs::File,
+    error::Error
+};
+use tui::{
+    backend::Backend,
+    layout::Rect,
+    Terminal
+};
+use crate::view::draw_ui;
+
+pub struct App {
+    pub logs: Vec<String>,
+    pub num_logs: usize,
+    pub sudo_logs: Vec<String>,
+    pub titles: Vec<String>,
+    pub tab_index: usize,
+    pub page_index: usize,
+    pub num_pages: usize,
+    pub logs_per_page: usize,
+}
+
+impl App {
+    pub fn new() -> App {
+        App {
+            logs: get_logs().unwrap(),
+            num_logs: 0,
+            sudo_logs: Vec::new(),
+            titles: vec!["ALL".to_string(), "SUDO".to_string()],
+            tab_index: 0,
+            page_index: 0,
+            num_pages: 0,
+            logs_per_page: 0
+        }
+    }
+
+    pub fn run<B: Backend>(mut self, terminal: &mut Terminal<B>) -> io::Result<()> {
+        let mut set_start_page = true;
+
+        loop {
+            terminal.draw(|f| {
+                let size = f.size();
+                update_logs(&mut self, &size);
+
+                if set_start_page {
+                    self.page_index = self.num_pages - 1;
+                    set_start_page = false;
+                }
+
+                draw_ui(f, &self, &size);
+            })?;
+
+            if let Event::Key(key) = event::read()? {
+                match key.code {
+                    KeyCode::Char('q') => return Ok(()),
+                    KeyCode::Up => {
+                        if self.page_index != 0 {
+                            self.page_index -= 1;
+                        }
+                    }
+                    KeyCode::Down => {
+                        if self.page_index != self.num_pages - 1 {
+                            self.page_index += 1;
+                        }
+                    }
+                    KeyCode::Right => {
+                        self.next();
+                        set_start_page = true;
+                    },
+                    KeyCode::Left => {
+                        self.prev();
+                        set_start_page = true;
+                    },
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub fn next(&mut self) {
+        self.tab_index = (self.tab_index + 1) % self.titles.len();
+    }
+
+    pub fn prev(&mut self) {
+        if self.tab_index > 0 {
+            self.tab_index -= 1;
+        } else {
+            self.tab_index = self.titles.len() - 1;
+        }
+    }
+}
+
+fn get_logs() -> Result<Vec<String>, Box<dyn Error>> {
+    // Open the auth.log file
+    //let file = File::open("/var/log/auth.log")?;
+    let file = File::open("/home/ehelwig/text.log")?;
+    let reader = BufReader::new(file);
+
+    // Vector to store the log entries
+    let mut logs = Vec::new();
+
+    // Read the file line by line
+    for line in reader.lines() {
+        // Unwrap the line or handle any potential error
+        let line = line?;
+
+        // Add the entries to the logs vector
+        logs.push(line);
+    }
+
+    Ok(logs)
+}
+
+fn update_logs(app: &mut App, size: &Rect) {
+    app.logs_per_page = size.height.into();
+
+    app.num_logs = match app.tab_index {
+        0 => app.logs.len(),
+        1 => app.sudo_logs.len(),
+        _ => unreachable!()
+    };
+
+    if app.num_logs % app.logs_per_page == 0 {
+        app.num_pages = app.num_logs / app.logs_per_page;
+    } else {
+        app.num_pages = (app.num_logs / app.logs_per_page) + 1;
+    }
+}
