@@ -24,8 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // create app and run it
-    let mut app = App::new();
-    load_sudo_logs(&mut app);
+    let app = App::new();
     let res = app.run(&mut terminal);
 
     // restore terminal
@@ -42,12 +41,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-}
-
-fn load_sudo_logs(app: &mut App) {
-    for log in &app.logs {
-        if log.contains("sudo") {
-            app.sudo_logs.push(log.clone());
-        }
-    }
 }

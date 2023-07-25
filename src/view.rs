@@ -13,6 +13,16 @@ use tui::{
 };
 use crate::app::App;
 
+/// Renders the user interface for the Super User Management Interface.
+///
+/// The function is responsible for rendering the title, tabs, logs, and info paragraphs
+/// based on the current tab. The rendered UI will be displayed using the provided `Frame`.
+///
+/// # Arguments
+///
+/// * `f`: A mutable reference to a `Frame`, which is used to render the UI elements.
+/// * `app`: A reference to an `App` struct, containing the data for the user interface.
+/// * `size`: A reference to a `Rect`, representing the available size to draw the UI.
 pub fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &App, size: &Rect) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -31,22 +41,40 @@ pub fn draw_ui<B: Backend>(f: &mut Frame<B>, app: &App, size: &Rect) {
     let tabs = create_tabs(&app.titles, app.tab_index);
     f.render_widget(tabs, layout[0]);
 
-    // render logs
-    let logs_paragraph = create_logs_paragraph(app);
-    f.render_widget(logs_paragraph, layout[1]);
+    match app.tab_index {
+        0 | 1 => {
+            // render logs
+            let logs_paragraph = create_logs_paragraph(app);
+            f.render_widget(logs_paragraph, layout[1]);
 
-    // render info
-    let info_block = Block::default();
-    let info_text = String::from(format!("\"/var/log/auth.log\" page: {}/{} logs: {}  (use arrow keys to navigate, press q to exit) ", app.page_index + 1, app.num_pages, app.num_logs));
-    let text_spans = Spans::from(
-        Span::styled(info_text, Style::default().bg(Color::Rgb(200,200,200)).fg(Color::Black))
-    );
-    let paragraph = Paragraph::new(text_spans)
-        .block(info_block)
-        .alignment(Alignment::Left);
-    f.render_widget(paragraph, layout[2]);
+            // render info
+            let info_paragraph = create_info_paragraph(app);
+            f.render_widget(info_paragraph, layout[2]);
+        },
+        2 => {
+            let horiz_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+                .split(layout[1]);
+
+            // render recent commands
+            let recent_cmds_paragraph = create_recent_commands_paragraph(app);
+            f.render_widget(recent_cmds_paragraph, horiz_layout[0]);
+
+            // render most used commands chart
+            let most_used_cmds_paragraph = create_most_used_cmds_paragraph(app);
+            f.render_widget(most_used_cmds_paragraph, horiz_layout[1]);
+        },
+        _ => unreachable!()
+    }
 }
 
+/// Creates and returns `Tabs` from a Vector of Strings. `Tabs` is a special
+/// type of block for displaying Spans in a multi-panel context.
+/// 
+/// # Arguments
+///
+/// * `titles`: A reference to a `Vec<String>` object representing the tab titles.
 fn create_tabs(titles: &Vec<String>, tab_index: usize) -> Tabs {
     let titles = titles.iter().map(|t| {
         Spans::from(vec![
@@ -77,6 +105,78 @@ fn create_logs_paragraph(app: &App) -> Paragraph {
 
     Paragraph::new(spans)
         .block(log_block)
+        .wrap(Wrap{trim: true})
+        .alignment(Alignment::Left)
+}
+
+fn create_info_paragraph(app: &App) -> Paragraph {
+    let info_block = Block::default();
+    let info_text = String::from(format!("\"/var/log/auth.log\" page: {}/{} logs: {}  (use arrow keys to navigate, press q to exit) ", app.page_index + 1, app.num_pages, app.num_logs));
+    let text_spans = Spans::from(
+        Span::styled(info_text, Style::default().bg(Color::Rgb(200,200,200)).fg(Color::Black))
+    );
+
+    Paragraph::new(text_spans)
+        .block(info_block)
+        .alignment(Alignment::Left)
+}
+
+fn create_recent_commands_paragraph(app: &App) -> Paragraph {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled("Recent", Style::default().fg(Color::Rgb(217,111,13))))
+        .style(Style::default().fg(Color::Rgb(120,120,120)));
+
+    let mut spans: Vec<Spans> = Vec::new();
+    let cmd_text = "COMMAND=";
+    let recent_logs_to_get = 10;
+    let recent_log_index = app.num_logs - recent_logs_to_get;
+    for log in &app.sudo_logs[recent_log_index..] {
+        let mut span: Vec<Span> = Vec::new();
+        // user
+        let sudo_text = "sudo:";
+        let delimiter = ":";
+        let user_start_index = log.find(sudo_text).unwrap() + sudo_text.len();
+        let user_end_index = log[user_start_index..].find(delimiter).unwrap() + user_start_index;
+        let user = format!("{}: ", log[user_start_index..user_end_index].trim());
+        span.push(Span::styled(user, Style::default().fg(Color::Rgb(120,120,120))));
+
+        // command
+        let cmd_index = log.find(cmd_text).unwrap();
+        let (_, cmd) = log.split_at(cmd_index + cmd_text.len());
+        span.push(Span::styled(cmd, Style::default().fg(Color::Rgb(120,120,120))));
+
+        spans.push(Spans::from(span));
+    }
+
+    Paragraph::new(spans)
+        .block(block)
+        .wrap(Wrap{trim: true})
+        .alignment(Alignment::Left)
+}
+
+fn create_most_used_cmds_paragraph(app: &App) -> Paragraph {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(Span::styled("Frequency", Style::default().fg(Color::Rgb(217,111,13))))
+        .style(Style::default().fg(Color::Rgb(120,120,120)));
+
+    let mut spans: Vec<Spans> = Vec::new();
+
+    // Extract commands and sort their frequencies in descending order
+    let mut sorted_pairs: Vec<(&String, &usize)> = app.commands.iter().collect();
+    sorted_pairs.sort_by(|a, b| b.1.cmp(a.1)); // Sorting in descending order
+
+    for (command, count) in sorted_pairs {
+        let mut span: Vec<Span> = Vec::new();
+        let count_text = format!(" ({})", count);
+        span.push(Span::styled(command, Style::default().fg(Color::Rgb(120,120,120))));
+        span.push(Span::styled(count_text, Style::default().fg(Color::Rgb(120,120,120))));
+        spans.push(Spans::from(span));
+    }
+
+    Paragraph::new(spans)
+        .block(block)
         .wrap(Wrap{trim: true})
         .alignment(Alignment::Left)
 }

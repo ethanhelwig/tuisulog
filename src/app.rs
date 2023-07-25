@@ -1,5 +1,6 @@
 use crossterm::event::{self, Event, KeyCode};
 use std::{
+    collections::HashMap,
     io::{self, BufRead, BufReader},
     fs::File,
     error::Error
@@ -15,6 +16,7 @@ pub struct App {
     pub logs: Vec<String>,
     pub num_logs: usize,
     pub sudo_logs: Vec<String>,
+    pub commands: HashMap<String, usize>,
     pub titles: Vec<String>,
     pub tab_index: usize,
     pub page_index: usize,
@@ -24,11 +26,14 @@ pub struct App {
 
 impl App {
     pub fn new() -> App {
+        let mut commands = HashMap::new();
+        let (logs, sudo_logs) = load_logs(&mut commands).unwrap();
         App {
-            logs: get_logs().unwrap(),
+            logs,
             num_logs: 0,
-            sudo_logs: Vec::new(),
-            titles: vec!["ALL".to_string(), "SUDO".to_string()],
+            sudo_logs,
+            commands,
+            titles: vec!["ALL".to_string(), "SUDO".to_string(), "COMMANDS".to_string()],
             tab_index: 0,
             page_index: 0,
             num_pages: 0,
@@ -92,25 +97,37 @@ impl App {
     }
 }
 
-fn get_logs() -> Result<Vec<String>, Box<dyn Error>> {
+fn load_logs(commands: &mut HashMap<String, usize>) -> Result<(Vec<String>, Vec<String>), Box<dyn Error>> {
     // Open the auth.log file
-    //let file = File::open("/var/log/auth.log")?;
-    let file = File::open("/home/ehelwig/text.log")?;
+    let file = File::open("/var/log/auth.log")?;
     let reader = BufReader::new(file);
 
     // Vector to store the log entries
     let mut logs = Vec::new();
+    let mut sudo_logs = Vec::new();
 
     // Read the file line by line
     for line in reader.lines() {
         // Unwrap the line or handle any potential error
         let line = line?;
 
+        if line.contains("sudo:") && !line.contains("pam_unix") {
+            let command_text = "COMMAND=";
+            let command_index = line.find(command_text).unwrap();
+            let (_, command )= line.split_at(command_index + command_text.len());
+            if commands.contains_key(command) {
+                commands.insert(command.to_string(), commands.get(command).unwrap() + 1);
+            } else {
+                commands.insert(command.to_string(), 1);
+            }
+            sudo_logs.push(line.clone());
+        }
+
         // Add the entries to the logs vector
         logs.push(line);
     }
 
-    Ok(logs)
+    Ok((logs, sudo_logs))
 }
 
 fn update_logs(app: &mut App, size: &Rect) {
@@ -119,6 +136,7 @@ fn update_logs(app: &mut App, size: &Rect) {
     app.num_logs = match app.tab_index {
         0 => app.logs.len(),
         1 => app.sudo_logs.len(),
+        2 => app.sudo_logs.len(),
         _ => unreachable!()
     };
 
