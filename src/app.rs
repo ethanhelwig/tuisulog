@@ -45,6 +45,7 @@ impl App {
         let mut set_start_page = true;
 
         loop {
+            // draws the ui
             terminal.draw(|f| {
                 let size = f.size();
                 /* calculates necessary information, including:
