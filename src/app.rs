@@ -47,16 +47,23 @@ impl App {
         loop {
             terminal.draw(|f| {
                 let size = f.size();
-                update_logs(&mut self, &size);
+                /* calculates necessary information, including:
+                 * logs_per_page: the number of logs than can be displayed per page
+                 * num_logs:      the total number of logs
+                 * num_pages:     the total number of pages 
+                 */
+                update_log_information(&mut self, &size);
 
                 if set_start_page {
                     self.page_index = self.num_pages - 1;
                     set_start_page = false;
                 }
 
+                // draws the ui
                 draw_ui(f, &self, &size);
             })?;
 
+            // handles all key inputs
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') => return Ok(()),
@@ -98,19 +105,20 @@ impl App {
 }
 
 fn load_logs(commands: &mut HashMap<String, usize>) -> Result<(Vec<String>, Vec<String>), Box<dyn Error>> {
-    // Open the auth.log file
+    // open the auth.log file
     let file = File::open("/var/log/auth.log")?;
     let reader = BufReader::new(file);
 
-    // Vector to store the log entries
+    // vector to store the log entries
     let mut logs = Vec::new();
     let mut sudo_logs = Vec::new();
 
-    // Read the file line by line
+    // read the file line by line
     for line in reader.lines() {
-        // Unwrap the line or handle any potential error
+        // unwrap the line or handle any potential error
         let line = line?;
 
+        // if the log is sudo-related, parse the line and store the command used
         if line.contains("sudo:") && !line.contains("pam_unix") {
             let command_text = "COMMAND=";
             let command_index = line.find(command_text).unwrap();
@@ -123,14 +131,14 @@ fn load_logs(commands: &mut HashMap<String, usize>) -> Result<(Vec<String>, Vec<
             sudo_logs.push(line.clone());
         }
 
-        // Add the entries to the logs vector
+        // add the entries to the logs vector
         logs.push(line);
     }
 
     Ok((logs, sudo_logs))
 }
 
-fn update_logs(app: &mut App, size: &Rect) {
+fn update_log_information(app: &mut App, size: &Rect) {
     app.logs_per_page = size.height.into();
 
     app.num_logs = match app.tab_index {
