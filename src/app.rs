@@ -45,9 +45,10 @@ impl App {
         let mut set_start_page = true;
 
         loop {
+            // draws the ui
             terminal.draw(|f| {
                 let size = f.size();
-                update_logs(&mut self, &size);
+                update_log_information(&mut self, &size);
 
                 if set_start_page {
                     self.page_index = self.num_pages - 1;
@@ -130,7 +131,7 @@ fn load_logs(commands: &mut HashMap<String, usize>) -> Result<(Vec<String>, Vec<
     Ok((logs, sudo_logs))
 }
 
-fn update_logs(app: &mut App, size: &Rect) {
+fn update_log_information(app: &mut App, size: &Rect) {
     app.logs_per_page = size.height.into();
 
     app.num_logs = match app.tab_index {
